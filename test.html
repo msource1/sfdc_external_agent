@@ -9,21 +9,58 @@
     Test page showing External Weather bot v2!
     <script type='text/javascript'>
 	function initEmbeddedMessaging() {
-		try {
-			embeddedservice_bootstrap.settings.language = 'en_US'; // For example, enter 'en' or 'en-US'
+    try {
+        embeddedservice_bootstrap.settings.language = 'en_US'; // For example, enter 'en' or 'en-US'
 
-			embeddedservice_bootstrap.init(
-				'00Daj00000zw3Oz',
-				'External_Wheater_Messaging_Channel',
-				'https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336',
-				{
-					scrt2URL: 'https://orgfarm-b89d0dcb49-dev-ed.develop.my.salesforce-scrt.com'
-				}
-			);
-		} catch (err) {
-			console.error('Error loading Embedded Messaging: ', err);
-		}
-	};
+        // Listen for pre-chat submission and forward the captured zip code to the agent.
+        // Register this before init() so the listener is ready before the widget can fire it.
+        window.addEventListener('onEmbeddedMessagingPreChatSubmitted', (event) => {
+            console.log('onEmbeddedMessagingPreChatSubmitted event detail: ', event.detail);
+
+            // NOTE: Salesforce's documented payload is only { prechatDisplay }.
+            // Inspect the console.log above once to confirm the real path for
+            // your org/version, and adjust the lookup below if needed.
+            const customerZipcode =
+                event.detail?.customerZipcode ??
+                event.detail?.fields?.customerZipcode ??
+                event.detail?.prechatFields?.customerZipcode;
+
+            if (customerZipcode) {
+                embeddedservice_bootstrap.utilAPI
+                    .setSessionContext([
+                        {
+                            name: '_AgentContext',
+                            value: {
+                                valueType: 'StructuredValue',
+                                value: {
+                                    customerZipcode: customerZipcode
+                                }
+                            }
+                        }
+                    ])
+                    .then(() => {
+                        console.log('Passed customerZipcode to agent as session context:', customerZipcode);
+                    })
+                    .catch((error) => {
+                        console.error('Error setting session context: ', error);
+                    });
+            } else {
+                console.warn('customerZipcode not found on the PreChatSubmitted event detail — check the logged object above.');
+            }
+        });
+
+        embeddedservice_bootstrap.init(
+            '00Daj00000zw3Oz',
+            'External_Wheater_Messaging_Channel',
+            'https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336',
+            {
+                scrt2URL: 'https://orgfarm-b89d0dcb49-dev-ed.develop.my.salesforce-scrt.com'
+            }
+        );
+    } catch (err) {
+        console.error('Error loading Embedded Messaging: ', err);
+    }
+};
 </script>
 <script type='text/javascript' src='https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336/assets/js/bootstrap.min.js' onload='initEmbeddedMessaging()'></script>
 </body>
