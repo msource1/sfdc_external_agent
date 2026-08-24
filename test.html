@@ -6,93 +6,128 @@
     <title>Document</title>
 </head>
 <body>
-    Test page showing External Weather bot v4!
+    Test page showing External Weather bot v5!
 
 	<script type='text/javascript'>
-	// Value captured from the pre-chat form, and a guard so we only send once.
+	var ZIP_FIELD = 'customerZipcode';
 	var capturedZipcode = null;
 	var zipcodeMessageSent = false;
 
-	// Build the text that will appear as the first end-user message.
 	function buildFirstMessage(zip) {
 		return String(zip);
-		// Or wrap it for the agent, e.g.:
-		// return "What is the weather in " + zip + "?";
+		// Or: return "What is the weather in " + zip + "?";
 	}
 
-	// Defensive, case-insensitive search for a field value anywhere in the payload.
-	function findFieldValue(obj, fieldName) {
-		if (!obj || typeof obj !== 'object') return null;
-		var target = fieldName.toLowerCase();
+	// Pull the field value out of any JSON-ish blob.
+	function extractZip(raw) {
+		var text;
+		try {
+			text = (typeof raw === 'string') ? raw : JSON.stringify(raw);
+		} catch (e) { return null; }
+		if (!text || text.indexOf(ZIP_FIELD) === -1) return null;
 
-		if (Array.isArray(obj)) {
-			for (var i = 0; i < obj.length; i++) {
-				var item = obj[i];
-				if (item && typeof item === 'object') {
-					var itemName = item.name || item.fieldName || item.label;
-					if (typeof itemName === 'string' && itemName.toLowerCase() === target) {
-						var v = (item.value !== undefined) ? item.value : item.fieldValue;
-						if (v !== undefined && v !== null && v !== '') return v;
+		var m = new RegExp('"' + ZIP_FIELD + '"\\s*:\\s*"?([^",}\\]]+)').exec(text);
+		if (m) return m[1];
+		m = new RegExp(ZIP_FIELD + '[\\s\\S]{0,80}?"value"\\s*:\\s*"?([^",}\\]]+)').exec(text);
+		return m ? m[1] : null;
+	}
+
+	function noteZip(value, source) {
+		if (value === null || value === undefined || value === '') return;
+		if (capturedZipcode !== null) return;
+		capturedZipcode = value;
+		console.log('*** Captured ' + ZIP_FIELD + ' = "' + value + '" from ' + source);
+	}
+
+	function scanWebStorage() {
+		[['sessionStorage', window.sessionStorage], ['localStorage', window.localStorage]]
+			.forEach(function (pair) {
+				try {
+					var store = pair[1];
+					for (var i = 0; i < store.length; i++) {
+						var key = store.key(i);
+						var hit = extractZip(store.getItem(key));
+						if (hit) {
+							console.log('Storage hit in ' + pair[0] + '["' + key + '"]:', store.getItem(key));
+							noteZip(hit, pair[0] + '["' + key + '"]');
+						}
 					}
-					var nested = findFieldValue(item, fieldName);
-					if (nested !== null) return nested;
-				}
-			}
-			return null;
-		}
-
-		for (var key in obj) {
-			if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
-			var val = obj[key];
-			if (key.toLowerCase() === target &&
-				(typeof val === 'string' || typeof val === 'number') && val !== '') {
-				return val;
-			}
-			var deep = findFieldValue(val, fieldName);
-			if (deep !== null) return deep;
-		}
-		return null;
+				} catch (e) { /* storage may be blocked */ }
+			});
 	}
+
+	// Watch messages coming from the Embedded Messaging iframe.
+	window.addEventListener('message', function (e) {
+		try {
+			if (typeof e.origin !== 'string' || e.origin.indexOf('my.site.com') === -1) return;
+			var hit = extractZip(e.data);
+			if (hit) {
+				console.log('postMessage payload containing ' + ZIP_FIELD + ':', e.data);
+				noteZip(hit, 'postMessage');
+			}
+		} catch (err) { /* ignore */ }
+	});
+
+	// Watch outbound requests made from the host page.
+	(function () {
+		var origFetch = window.fetch;
+		if (origFetch) {
+			window.fetch = function (input, init) {
+				try {
+					var body = init && init.body;
+					var hit = extractZip(body);
+					if (hit) {
+						console.log('fetch body containing ' + ZIP_FIELD + ':', body);
+						noteZip(hit, 'fetch');
+					}
+				} catch (e) { /* ignore */ }
+				return origFetch.apply(this, arguments);
+			};
+		}
+		var origSend = XMLHttpRequest.prototype.send;
+		XMLHttpRequest.prototype.send = function (body) {
+			try {
+				var hit = extractZip(body);
+				if (hit) {
+					console.log('XHR body containing ' + ZIP_FIELD + ':', body);
+					noteZip(hit, 'XHR');
+				}
+			} catch (e) { /* ignore */ }
+			return origSend.apply(this, arguments);
+		};
+	})();
 
 	function sendZipcodeAsFirstMessage() {
 		if (zipcodeMessageSent) return;
-		if (capturedZipcode === null || capturedZipcode === '') {
-			console.warn('No customerZipcode captured; nothing to send.');
-			return;
+		if (!capturedZipcode) {
+			scanWebStorage(); // last chance
+			if (!capturedZipcode) {
+				console.warn('No ' + ZIP_FIELD + ' captured; nothing to send.');
+				return;
+			}
 		}
 		zipcodeMessageSent = true;
-
 		embeddedservice_bootstrap.utilAPI.sendTextMessage(buildFirstMessage(capturedZipcode))
-			.then(function () {
-				console.log('Sent zip code as first user message:', capturedZipcode);
-			})
+			.then(function () { console.log('Sent first user message:', capturedZipcode); })
 			.catch(function (err) {
-				zipcodeMessageSent = false; // allow a retry from the fallback listener
-				console.error('Failed to send zip code message: ', err);
+				zipcodeMessageSent = false;
+				console.error('Failed to send message: ', err);
 			});
 	}
 
 	function initEmbeddedMessaging() {
 		try {
-			embeddedservice_bootstrap.settings.language = 'en_US'; // For example, enter 'en' or 'en-US'
+			embeddedservice_bootstrap.settings.language = 'en_US';
 
-			// 1) Capture the pre-chat input when the form is submitted.
 			window.addEventListener('onEmbeddedMessagingPreChatSubmitted', function (event) {
-				try {
-					console.log('onEmbeddedMessagingPreChatSubmitted detail: ', JSON.stringify(event.detail));
-					capturedZipcode = findFieldValue(event.detail, 'customerZipcode');
-					console.log('Captured customerZipcode: ', capturedZipcode);
-				} catch (e) {
-					console.error('Error reading pre-chat payload: ', e);
-				}
+				console.log('PreChatSubmitted detail: ', JSON.stringify(event.detail));
+				scanWebStorage();
 			});
 
-			// 2) Send it as the first end-user message once the bot has joined and spoken.
 			window.addEventListener('onEmbeddedMessagingFirstBotMessageSent', function () {
 				sendZipcodeAsFirstMessage();
 			});
 
-			// Fallback in case the bot's first message event doesn't fire.
 			window.addEventListener('onEmbeddedMessagingConversationStarted', function () {
 				setTimeout(sendZipcodeAsFirstMessage, 4000);
 			});
