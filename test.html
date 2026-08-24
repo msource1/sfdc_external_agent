@@ -6,61 +6,109 @@
     <title>Document</title>
 </head>
 <body>
-    Test page showing External Weather bot v3!
-    <script type='text/javascript'>
+    Test page showing External Weather bot v4!
+
+	<script type='text/javascript'>
+	// Value captured from the pre-chat form, and a guard so we only send once.
+	var capturedZipcode = null;
+	var zipcodeMessageSent = false;
+
+	// Build the text that will appear as the first end-user message.
+	function buildFirstMessage(zip) {
+		return String(zip);
+		// Or wrap it for the agent, e.g.:
+		// return "What is the weather in " + zip + "?";
+	}
+
+	// Defensive, case-insensitive search for a field value anywhere in the payload.
+	function findFieldValue(obj, fieldName) {
+		if (!obj || typeof obj !== 'object') return null;
+		var target = fieldName.toLowerCase();
+
+		if (Array.isArray(obj)) {
+			for (var i = 0; i < obj.length; i++) {
+				var item = obj[i];
+				if (item && typeof item === 'object') {
+					var itemName = item.name || item.fieldName || item.label;
+					if (typeof itemName === 'string' && itemName.toLowerCase() === target) {
+						var v = (item.value !== undefined) ? item.value : item.fieldValue;
+						if (v !== undefined && v !== null && v !== '') return v;
+					}
+					var nested = findFieldValue(item, fieldName);
+					if (nested !== null) return nested;
+				}
+			}
+			return null;
+		}
+
+		for (var key in obj) {
+			if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+			var val = obj[key];
+			if (key.toLowerCase() === target &&
+				(typeof val === 'string' || typeof val === 'number') && val !== '') {
+				return val;
+			}
+			var deep = findFieldValue(val, fieldName);
+			if (deep !== null) return deep;
+		}
+		return null;
+	}
+
+	function sendZipcodeAsFirstMessage() {
+		if (zipcodeMessageSent) return;
+		if (capturedZipcode === null || capturedZipcode === '') {
+			console.warn('No customerZipcode captured; nothing to send.');
+			return;
+		}
+		zipcodeMessageSent = true;
+
+		embeddedservice_bootstrap.utilAPI.sendTextMessage(buildFirstMessage(capturedZipcode))
+			.then(function () {
+				console.log('Sent zip code as first user message:', capturedZipcode);
+			})
+			.catch(function (err) {
+				zipcodeMessageSent = false; // allow a retry from the fallback listener
+				console.error('Failed to send zip code message: ', err);
+			});
+	}
+
 	function initEmbeddedMessaging() {
-    try {
-        embeddedservice_bootstrap.settings.language = 'en_US'; // For example, enter 'en' or 'en-US'
+		try {
+			embeddedservice_bootstrap.settings.language = 'en_US'; // For example, enter 'en' or 'en-US'
 
-        // Listen for pre-chat submission and forward the captured zip code to the agent.
-        // Register this before init() so the listener is ready before the widget can fire it.
-        window.addEventListener('onEmbeddedMessagingPreChatSubmitted', (event) => {
-            console.log('onEmbeddedMessagingPreChatSubmitted event detail: ', event.detail);
+			// 1) Capture the pre-chat input when the form is submitted.
+			window.addEventListener('onEmbeddedMessagingPreChatSubmitted', function (event) {
+				try {
+					console.log('onEmbeddedMessagingPreChatSubmitted detail: ', JSON.stringify(event.detail));
+					capturedZipcode = findFieldValue(event.detail, 'customerZipcode');
+					console.log('Captured customerZipcode: ', capturedZipcode);
+				} catch (e) {
+					console.error('Error reading pre-chat payload: ', e);
+				}
+			});
 
-            // NOTE: Salesforce's documented payload is only { prechatDisplay }.
-            // Inspect the console.log above once to confirm the real path for
-            // your org/version, and adjust the lookup below if needed.
-            const customerZipcode =
-                event.detail?.customerZipcode ??
-                event.detail?.fields?.customerZipcode ??
-                event.detail?.prechatFields?.customerZipcode;
+			// 2) Send it as the first end-user message once the bot has joined and spoken.
+			window.addEventListener('onEmbeddedMessagingFirstBotMessageSent', function () {
+				sendZipcodeAsFirstMessage();
+			});
 
-            if (customerZipcode) {
-                embeddedservice_bootstrap.utilAPI
-                    .setSessionContext([
-                        {
-                            name: '_AgentContext',
-                            value: {
-                                valueType: 'StructuredValue',
-                                value: {
-                                    customerZipcode: customerZipcode
-                                }
-                            }
-                        }
-                    ])
-                    .then(() => {
-                        console.log('Passed customerZipcode to agent as session context:', customerZipcode);
-                    })
-                    .catch((error) => {
-                        console.error('Error setting session context: ', error);
-                    });
-            } else {
-                console.warn('customerZipcode not found on the PreChatSubmitted event detail — check the logged object above.');
-            }
-        });
+			// Fallback in case the bot's first message event doesn't fire.
+			window.addEventListener('onEmbeddedMessagingConversationStarted', function () {
+				setTimeout(sendZipcodeAsFirstMessage, 4000);
+			});
 
-        embeddedservice_bootstrap.init(
-            '00Daj00000zw3Oz',
-            'External_Wheater_Messaging_Channel',
-            'https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336',
-            {
-                scrt2URL: 'https://orgfarm-b89d0dcb49-dev-ed.develop.my.salesforce-scrt.com'
-            }
-        );
-    } catch (err) {
-        console.error('Error loading Embedded Messaging: ', err);
-    }
-};
+			embeddedservice_bootstrap.init(
+				'00Daj00000zw3Oz',
+				'External_Wheater_Messaging_Channel',
+				'https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336',
+				{
+					scrt2URL: 'https://orgfarm-b89d0dcb49-dev-ed.develop.my.salesforce-scrt.com'
+				}
+			);
+		} catch (err) {
+			console.error('Error loading Embedded Messaging: ', err);
+		}
+	};
 </script>
 <script type='text/javascript' src='https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336/assets/js/bootstrap.min.js' onload='initEmbeddedMessaging()'></script>
 </body>
