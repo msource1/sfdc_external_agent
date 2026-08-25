@@ -6,131 +6,12 @@
     <title>Document</title>
 </head>
 <body>
-    Test page showing External Weather bot v5!
+    Test page showing External Weather bot v6!
 
 	<script type='text/javascript'>
-	var ZIP_FIELD = 'customerZipcode';
-	var capturedZipcode = null;
-	var zipcodeMessageSent = false;
-
-	function buildFirstMessage(zip) {
-		return String(zip);
-		// Or: return "What is the weather in " + zip + "?";
-	}
-
-	// Pull the field value out of any JSON-ish blob.
-	function extractZip(raw) {
-		var text;
-		try {
-			text = (typeof raw === 'string') ? raw : JSON.stringify(raw);
-		} catch (e) { return null; }
-		if (!text || text.indexOf(ZIP_FIELD) === -1) return null;
-
-		var m = new RegExp('"' + ZIP_FIELD + '"\\s*:\\s*"?([^",}\\]]+)').exec(text);
-		if (m) return m[1];
-		m = new RegExp(ZIP_FIELD + '[\\s\\S]{0,80}?"value"\\s*:\\s*"?([^",}\\]]+)').exec(text);
-		return m ? m[1] : null;
-	}
-
-	function noteZip(value, source) {
-		if (value === null || value === undefined || value === '') return;
-		if (capturedZipcode !== null) return;
-		capturedZipcode = value;
-		console.log('*** Captured ' + ZIP_FIELD + ' = "' + value + '" from ' + source);
-	}
-
-	function scanWebStorage() {
-		[['sessionStorage', window.sessionStorage], ['localStorage', window.localStorage]]
-			.forEach(function (pair) {
-				try {
-					var store = pair[1];
-					for (var i = 0; i < store.length; i++) {
-						var key = store.key(i);
-						var hit = extractZip(store.getItem(key));
-						if (hit) {
-							console.log('Storage hit in ' + pair[0] + '["' + key + '"]:', store.getItem(key));
-							noteZip(hit, pair[0] + '["' + key + '"]');
-						}
-					}
-				} catch (e) { /* storage may be blocked */ }
-			});
-	}
-
-	// Watch messages coming from the Embedded Messaging iframe.
-	window.addEventListener('message', function (e) {
-		try {
-			if (typeof e.origin !== 'string' || e.origin.indexOf('my.site.com') === -1) return;
-			var hit = extractZip(e.data);
-			if (hit) {
-				console.log('postMessage payload containing ' + ZIP_FIELD + ':', e.data);
-				noteZip(hit, 'postMessage');
-			}
-		} catch (err) { /* ignore */ }
-	});
-
-	// Watch outbound requests made from the host page.
-	(function () {
-		var origFetch = window.fetch;
-		if (origFetch) {
-			window.fetch = function (input, init) {
-				try {
-					var body = init && init.body;
-					var hit = extractZip(body);
-					if (hit) {
-						console.log('fetch body containing ' + ZIP_FIELD + ':', body);
-						noteZip(hit, 'fetch');
-					}
-				} catch (e) { /* ignore */ }
-				return origFetch.apply(this, arguments);
-			};
-		}
-		var origSend = XMLHttpRequest.prototype.send;
-		XMLHttpRequest.prototype.send = function (body) {
-			try {
-				var hit = extractZip(body);
-				if (hit) {
-					console.log('XHR body containing ' + ZIP_FIELD + ':', body);
-					noteZip(hit, 'XHR');
-				}
-			} catch (e) { /* ignore */ }
-			return origSend.apply(this, arguments);
-		};
-	})();
-
-	function sendZipcodeAsFirstMessage() {
-		if (zipcodeMessageSent) return;
-		if (!capturedZipcode) {
-			scanWebStorage(); // last chance
-			if (!capturedZipcode) {
-				console.warn('No ' + ZIP_FIELD + ' captured; nothing to send.');
-				return;
-			}
-		}
-		zipcodeMessageSent = true;
-		embeddedservice_bootstrap.utilAPI.sendTextMessage(buildFirstMessage(capturedZipcode))
-			.then(function () { console.log('Sent first user message:', capturedZipcode); })
-			.catch(function (err) {
-				zipcodeMessageSent = false;
-				console.error('Failed to send message: ', err);
-			});
-	}
-
 	function initEmbeddedMessaging() {
 		try {
-			embeddedservice_bootstrap.settings.language = 'en_US';
-
-			window.addEventListener('onEmbeddedMessagingPreChatSubmitted', function (event) {
-				console.log('PreChatSubmitted detail: ', JSON.stringify(event.detail));
-				scanWebStorage();
-			});
-
-			window.addEventListener('onEmbeddedMessagingFirstBotMessageSent', function () {
-				sendZipcodeAsFirstMessage();
-			});
-
-			window.addEventListener('onEmbeddedMessagingConversationStarted', function () {
-				setTimeout(sendZipcodeAsFirstMessage, 4000);
-			});
+			embeddedservice_bootstrap.settings.language = 'en_US'; // For example, enter 'en' or 'en-US'
 
 			embeddedservice_bootstrap.init(
 				'00Daj00000zw3Oz',
@@ -146,5 +27,6 @@
 	};
 </script>
 <script type='text/javascript' src='https://orgfarm-b89d0dcb49-dev-ed.develop.my.site.com/ESWExternalWheaterMessa1787581284336/assets/js/bootstrap.min.js' onload='initEmbeddedMessaging()'></script>
-</body>
+
+	</body>
 </html>
